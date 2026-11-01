@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "dependencies": {
+    "binarywriter": {
+      "git": "https://github.com/BuoyBay/binarywriter.git",
+      "rev": "refs/heads/main"
+    }
+  }
+}

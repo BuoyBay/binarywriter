@@ -1,0 +1,178 @@
+#If TargetWindows Then
+Private Declare Function BWFloat32 Lib "ucrtbase" Alias "memcpy" (destination As Ptr, ByRef source As Single, count As UInt64) As Ptr
+Private Declare Function BWFloat64 Lib "ucrtbase" Alias "memcpy" (destination As Ptr, ByRef source As Double, count As UInt64) As Ptr
+#Else
+Private Declare Function BWFloat32 Lib "c" Alias "memcpy" (destination As Ptr, ByRef source As Single, count As UInt64) As Ptr
+Private Declare Function BWFloat64 Lib "c" Alias "memcpy" (destination As Ptr, ByRef source As Double, count As UInt64) As Ptr
+#End If
+
+''' Bounded append-only binary encoder with independent output snapshots.
+Public Class BinaryWriter
+    Private Property mData As Bytes = New Bytes()
+    Private Property mMaxBytes As Integer
+
+    Public Sub Constructor(maxBytes As Integer = 16777216)
+        If maxBytes < 0 Or maxBytes > 16777216 Then Throw New InvalidArgumentException("BinaryWriter limit must be in 0..16777216")
+        mMaxBytes = maxBytes
+    End Sub
+
+    Public Property Count As Integer
+        Get
+            Return mData.Count
+        End Get
+    End Property
+
+    Public Property Remaining As Integer
+        Get
+            Return mMaxBytes - mData.Count
+        End Get
+    End Property
+
+    Private Sub Require(count As Integer)
+        If count < 0 Or count > Me.Remaining Then Throw New InvalidArgumentException("BinaryWriter capacity exceeded")
+    End Sub
+
+    Public Sub Clear()
+        mData = New Bytes()
+    End Sub
+
+    Public Function ToBytes() As Bytes
+        Dim output As New Bytes(mData.Count)
+        output.Append(mData)
+        Return output
+    End Function
+
+    Public Sub WriteBytes(data As Bytes)
+        If data Is Nil Then Throw New InvalidArgumentException("BinaryWriter data must not be Nil")
+        Me.Require(data.Count)
+        mData.Append(data)
+    End Sub
+
+    Public Sub WriteUTF8(sourceText As String)
+        Dim data As Bytes = Bytes.FromString(sourceText, Text.Encodings.UTF8)
+        Me.WriteBytes(data)
+    End Sub
+
+    Private Sub UnsignedValue(value As Integer, width As Integer, maximum As Integer, littleEndian As Boolean)
+        If value < 0 Or value > maximum Then Throw New InvalidArgumentException("BinaryWriter unsigned value out of range")
+        Me.Require(width)
+        Dim encoded As New Bytes(width)
+        Dim digits As Integer = value
+        For i As Integer = 0 To width - 1
+            encoded.Append(digits Mod 256)
+            digits = digits \ 256
+        Next
+        If littleEndian Then
+            mData.Append(encoded)
+        Else
+            Dim ordered As New Bytes(width)
+            For i As Integer = width - 1 To 0 Step -1
+                ordered.Append(encoded.Item(i))
+            Next
+            mData.Append(ordered)
+        End If
+    End Sub
+
+    Public Sub WriteUInt8(value As Integer)
+        Me.UnsignedValue(value, 1, 255, True)
+    End Sub
+
+    Public Sub WriteInt8(value As Integer)
+        If value < -128 Or value > 127 Then Throw New InvalidArgumentException("BinaryWriter signed byte out of range")
+        If value < 0 Then value += 256
+        Me.UnsignedValue(value, 1, 255, True)
+    End Sub
+
+    Public Sub WriteUInt16(value As Integer, littleEndian As Boolean = True)
+        Me.UnsignedValue(value, 2, 65535, littleEndian)
+    End Sub
+
+    Public Sub WriteInt16(value As Integer, littleEndian As Boolean = True)
+        If value < -32768 Or value > 32767 Then Throw New InvalidArgumentException("BinaryWriter signed 16-bit value out of range")
+        If value < 0 Then value += 65536
+        Me.UnsignedValue(value, 2, 65535, littleEndian)
+    End Sub
+
+    Public Sub WriteUInt32(value As Integer, littleEndian As Boolean = True)
+        Me.UnsignedValue(value, 4, 4294967295, littleEndian)
+    End Sub
+
+    Public Sub WriteInt32(value As Integer, littleEndian As Boolean = True)
+        If value < -2147483648 Or value > 2147483647 Then Throw New InvalidArgumentException("BinaryWriter signed 32-bit value out of range")
+        If value < 0 Then value += 4294967296
+        Me.UnsignedValue(value, 4, 4294967295, littleEndian)
+    End Sub
+
+    ''' Canonical unsigned LEB128 over the nonnegative Integer range, 0..2^63-1.
+    Public Sub WriteVarUInt(value As Integer)
+        If value < 0 Then Throw New InvalidArgumentException("Unsigned varint must not be negative")
+        Dim encoded As New Bytes(9)
+        Dim digits As Integer = value
+        Do
+            Dim octet As Integer = digits Mod 128
+            digits = digits \ 128
+            If digits > 0 Then octet += 128
+            encoded.Append(octet)
+        Loop Until digits = 0
+        Me.WriteBytes(encoded)
+    End Sub
+
+    ''' ZigZag followed by unsigned LEB128, for the complete signed Integer range.
+    Public Sub WriteVarInt(value As Integer)
+        Dim magnitude As Integer = value
+        Dim sign As Integer = 0
+        If value < 0 Then
+            magnitude = -(value + 1)
+            sign = 1
+        End If
+        ' Extract the low six bits before doubling: no intermediate UInt64 needed.
+        Dim octet As Integer = (magnitude Mod 64) * 2 + sign
+        Dim remaining As Integer = magnitude \ 64
+        If remaining > 0 Then octet += 128
+        Dim encoded As New Bytes(10)
+        encoded.Append(octet)
+        While remaining > 0
+            octet = remaining Mod 128
+            remaining = remaining \ 128
+            If remaining > 0 Then octet += 128
+            encoded.Append(octet)
+        End While
+        Me.WriteBytes(encoded)
+    End Sub
+    ''' Write IEEE binary32 bits without numeric conversion.
+    Public Sub WriteFloat32(value As Single, littleEndian As Boolean = True)
+        Me.Require(4)
+        Dim encoded As New Bytes(4)
+        For i As Integer = 0 To 3
+            encoded.Append(0)
+        Next
+        BWFloat32(encoded.DataPtr(), value, 4)
+        If Not littleEndian Then
+            For i As Integer = 0 To 1
+                Dim octet As Integer = encoded.Item(i)
+                encoded.SetItem(i, encoded.Item(3 - i))
+                encoded.SetItem(3 - i, octet)
+            Next
+        End If
+        Me.WriteBytes(encoded)
+    End Sub
+
+    ''' Write IEEE binary64 bits without numeric conversion.
+    Public Sub WriteFloat64(value As Double, littleEndian As Boolean = True)
+        Me.Require(8)
+        Dim encoded As New Bytes(8)
+        For i As Integer = 0 To 7
+            encoded.Append(0)
+        Next
+        BWFloat64(encoded.DataPtr(), value, 8)
+        If Not littleEndian Then
+            For i As Integer = 0 To 3
+                Dim octet As Integer = encoded.Item(i)
+                encoded.SetItem(i, encoded.Item(7 - i))
+                encoded.SetItem(7 - i, octet)
+            Next
+        End If
+        Me.WriteBytes(encoded)
+    End Sub
+
+End Class

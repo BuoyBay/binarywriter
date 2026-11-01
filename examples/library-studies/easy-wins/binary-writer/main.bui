@@ -1,0 +1,11 @@
+Import binarywriter
+
+Sub Main()
+    Dim writer As New BinaryWriter(1024)
+    writer.WriteUTF8("BUOY")
+    writer.WriteUInt16(1)
+    writer.WriteUInt32(42, False)
+    writer.WriteVarUInt(300)
+    writer.WriteVarInt(-150)
+    Print writer.ToBytes().ToHex()
+End Sub
