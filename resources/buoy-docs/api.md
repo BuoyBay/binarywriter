@@ -60,31 +60,9 @@ copy, and Bytes may reserve extra backing capacity. Allocation failure is not a
 recoverable transactional contract. String encoding follows Buoy's current
 String behavior; use WriteBytes for arbitrary binary data and embedded NUL.
 
-## Example and verification
-
-See the binary record example.
-The writer-only package is independent; its test additionally seals BinaryCursor
-for paired fixed-width roundtrips.
-
-```sh
-/usr/bin/buoy pkg seal . -o packages/binarywriter-0.1.0.buipkg
-```
-
-The verifier checks module/test/example across six desktop targets and executes
-both consumers on Linux. An independent Python `struct` and integer-arithmetic
-oracle checks 1152 typed writes and 192 varints, including signed minima/maxima.
-Regression tests cover range/capacity failures, zero limits, exact UTF-8,
-embedded-NUL bytes and snapshot/input ownership. Builds use a temporary tree to
-avoid unrelated application resources. `BUOY` selects the compiler and
-`BPM_PACKAGER` the package command (default `/usr/bin/buoy` on this host).
-
-This is an independent implementation. No upstream code was copied. There are
-no fixed 64-bit integer writes, full unsigned-64 API,
-varint decoders, bit fields, file I/O or asynchronous operations. BPM and compiler
-manifests are supplied; the local sealed package has not been remotely published.
-
-
-[Typed API](typed-api.md) · [Getting started](getting-started.md)
+The writer has no file I/O, asynchronous operations or full unsigned-64 API.
+Matching canonical varint readers are available in
+[BinaryCursor](https://github.com/BuoyBay/binarycursor).
 
 ## IEEE floating-point fields
 
@@ -106,5 +84,3 @@ Implementation uses `memcpy` from the system C runtime (`ucrtbase` on
 Windows), with no extra shipped native library or Xojo dependency. The six
 supported desktop targets are little-endian Intel/ARM64; byte order on
 the wire remains explicit.
-
-Maintainers run the private validation suite before release. See the repository README for public build instructions.
