@@ -1,1 +1,1 @@
-{"schema":1,"name":"binarywriter","version":"0.1.0","description":"Write endian-aware binary records and canonical varints"}
+{"schema":1,"name":"binarywriter","version":"0.1.0","description":"Endian binary encoding and canonical varints"}

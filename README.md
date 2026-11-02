@@ -1,4 +1,4 @@
-# Write endian-aware binary records and canonical varints
+# Endian binary encoding and canonical varints
 
 `Import binarywriter` provides bounded append-only encoding to owned `Bytes`.
 It complements BinaryCursor's exact in-memory reads. BufferKit already supplies
